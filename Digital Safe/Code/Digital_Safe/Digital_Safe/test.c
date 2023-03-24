@@ -36,390 +36,179 @@
     volts, the system should enter into emergency mode and lock up. An alert should be displayed on the
     LCD. The system should remain locked and inactive until the MCU is reset using the rest button.
 */
+#define F_CPU 8000000UL
+#include <stdio.h>
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <avr/eeprom.h>
+#include <util/delay.h>
+#include "LCD.h"
+#include "ADC.h"
 
-//Global Variables
-char password[4];
-char password_index = 0;
+#define KEY_DDR     DDRB
+#define KEY_PIN     PINB
+#define KEY_PORT    PORTB
 
-// port definitions
-#define LATCH_BUTTON_PORT PORTD 
-#define LATCH_BUTTON_PIN PIND
-#define LATCH_BUTTON_DDR DDRD
-#define LATCH_BUTTON 2
+#define ROW_MASK    0x0F
+#define COL_MASK    0xF0
 
+volatile uint8_t key_pressed = 0;
+volatile uint8_t key_code = 0;
 
-
-
-
-//Function Prototypes
-void init(void);
-void check_password(void);
-void reset_password(void);
-void check_tilt(void);
-void check_button(void);
-void check_reset_button(void);
-void check_show_password(void);
-void check_enter_button(void);
-void check_clear_button(void);
-void check_keypad(void);
+// Define Global Variables
+int input_password[4];
+int stored_password[4] = {1, 2, 3, 4}; // to be changed to eeprom
+int count = 0;
 
 
 
-//Main Function
+
 int main(void)
-{
-    init();
-    while(1)
-    {
-        check_password();
-        check_reset_button();
-        check_tilt();
-        check_button();
-        check_keypad();
-    }
-    return 0;
-}
-
-//Function Definitions
-void init(void)
-{
-    //Initialize LCD
-    LCD_init();
-    //Initialize ADC
-    ADC_init();
-    //Initialize Keypad
-    keypad_init();
-    //Initialize Buzzer
-    buzzer_init();
-    //Initialize Bicolor LED
-    bicolor_led_init();
-    //Initialize Latch
-    latch_init();
-    //Initialize Reset Button
-    reset_button_init();
-    //Initialize Tilt Sensor
-    tilt_sensor_init();
-    //Initialize Interrupts
-    sei();
-}
-
-void check_password(void)
-{
-    //Display Welcome on line 1 and "Enter Password" on line 2
-    LCD_clear();
-    LCD_displayString("Welcome");
-    LCD_goToRowColumn(1,0);
-    LCD_displayString("Enter Password");
-    //Wait for user to enter password
-    while(1)
-    {
-        check_keypad();
-        check_show_password();
-        check_enter_button();
-        check_clear_button();
-    }
-}
-
-void check_reset_button(void)
-{
-    //Check if reset button is pressed
-    if(reset_button_pressed())
-    {
-        //Display Reset Mode on line 1 and "Enter Password" on line 2
-        LCD_clear();
-        LCD_displayString("Reset Mode");
-        LCD_goToRowColumn(1,0);
-        LCD_displayString("Enter Password");
-        //Wait for user to enter password
-        while(1)
-        {
-            check_keypad();
-            check_show_password();
-            check_enter_button();
-            check_clear_button();
-        }
-    }
-}
-
-void check_tilt(void)
-{
-    //Check if tilt sensor is tilted
-    if(tilt_sensor_tilted())
-    {
-        //Display Emergency Mode on line 1 and "System Locked" on line 2
-        LCD_clear();
-        LCD_displayString("Emergency Mode");
-        LCD_goToRowColumn(1,0);
-        LCD_displayString("System Locked");
-        //Lock the system
-        while(1)
-        {
-            //Do nothing
-        }
-    }
-}
+{	
+	LCD_Init();
+	LCD_String("Enter Password: ");
+	LCD_Cmd(0xC0);
+	
+	/* Interrupt setup */
+	GICR = 1<<INT0; /* Enable INT0*/
+	MCUCR = 1<<ISC01 | 1<<ISC00; /* Trigger INT0 on rising edge */
+	sei(); /* Enable Global Interrupt */
 
 
-void check_button(void)
-{
-    //Check if latch button is pressed
-    if(latch_button_pressed())
-    {
-        //Display Open on line 1 and "Safe Open" on line 2
-        LCD_clear();
-        LCD_displayString("Open");
-        LCD_goToRowColumn(1,0);
-        LCD_displayString("Safe Open");
-        //Turn on bicolor LED
-        bicolor_led_green();
-        //Wait for user to close the safe
-        while(1)
-        {
-            //Check if latch button is pressed
-            if(latch_button_pressed())
-            {
-                //Display Welcome on line 1 and  "Enter Password" on line 2
-                LCD_clear();
-                LCD_displayString("Welcome");
-                LCD_goToRowColumn(1,0);
-                LCD_displayString("Enter Password");
-                //Turn off bicolor LED
-                bicolor_led_off();
-                //Wait for user to enter password
-                while(1)
-                {
-                    check_keypad();
-                    check_show_password();
-                    check_enter_button();
-                    check_clear_button();
-                }
-            }
-        }
-    }
-}
+	while (1)
+	{
+		
 
-
-void check_keypad(void)
-{
-    //Check if any key is pressed
-    if(keypad_key_pressed())
-    {
-        //Display Enter Password on line 1 and "****" on line 2
-        LCD_clear();
-        LCD_displayString("Enter Password");
-        LCD_goToRowColumn(1,0);
-        LCD_displayString("****");
-        //Wait for user to enter password
-        while(1)
-        {
-            check_show_password();
-            check_enter_button();
-            check_clear_button();
-        }
-    }
-}
-
-
-void check_show_password(void)
-{
-    //Check if show password button is pressed
-    if(show_password_button_pressed())
-    {
-        //Display Enter Password on line 1 and "****" on line 2
-        LCD_clear();
-        LCD_displayString("Enter Password");
-        LCD_goToRowColumn(1,0);
-        LCD_displayString("****");
-        //Wait for user to enter password
-        while(1)
-        {
-            check_enter_button();
-            check_clear_button();
-        }
-    }
-}
-
-
-void check_enter_button(void)
-{
-    //Check if enter button is pressed
-    if(enter_button_pressed())
-    {
-        //Check if password is correct
-        if(password_correct())
-        {
-            //Display Open on line 1 and "Safe Open" on line 2
-            LCD_clear();
-            LCD_displayString("Open");
-            LCD_goToRowColumn(1,0);
-            LCD_displayString("Safe Open");
-            //Turn on bicolor LED
-            bicolor_led_green();
-            //Wait for user to close the safe
-            while(1)
-            {
-                //Check if latch button is pressed
-                if(latch_button_pressed())
-                {
-                    //Display Welcome on line 1 and  "Enter Password" on line 2
-                    LCD_clear();
-                    LCD_displayString("Welcome");
-                    LCD_goToRowColumn(1,0);
-                    LCD_displayString("Enter Password");
-                    //Turn off bicolor LED
-                    bicolor_led_off();
-                    //Wait for user to enter password
-                    while(1)
-                    {
-                        check_keypad();
-                        check_show_password();
-                        check_enter_button();
-                        check_clear_button();
-                    }
-                }
-            }
-        }
-        else
-        {
-            //Display Wrong Password on line 1 and "Try Again" on line 2
-            LCD_clear();
-            LCD_displayString("Wrong Password");
-            LCD_goToRowColumn(1,0);
-            LCD_displayString("Try Again");
-            //Wait for user to enter password
-            while(1)
-            {
-                check_keypad();
-                check_show_password();
-                check_enter_button();
-                check_clear_button();
-            }
-        }
-    }
+		// TODO: Add other main loop code
+	}
 }
 
 
 
-void check_clear_button(void)
+uint8_t read_keypad(void)
 {
-    //Check if clear button is pressed
-    if(clear_button_pressed())
-    {
-        //Display Enter Password on line 1 and "****" on line 2
-        LCD_clear();
-        LCD_displayString("Enter Password");
-        LCD_goToRowColumn(1,0);
-        LCD_displayString("****");
-        //Wait for user to enter password
-        while(1)
-        {
-            check_enter_button();
-            check_clear_button();
-        }
-    }
+	// Wait for the data to be available
+	while (!(PIND & (1 << PD2)));
+
+	// Read the data from the keypad
+	int value = PINB;
+	uint8_t data = 255; // initialize to a default value
+	switch (value)
+	{
+		case 0:
+		data = 7;
+		LCD_String("7");
+		
+		break;
+		case 1:
+		data = 8;
+		LCD_String("8");
+		break;
+		case 2:
+		data = 9;
+		LCD_String("9");
+		break;
+		case 3:
+		LCD_String("/");
+		break;
+		case 4:
+		data = 4;
+		LCD_String("4");
+		break;
+		case 5:
+		data = 5;
+		LCD_String("5");
+		break;
+		case 6:
+		data = 6;
+		LCD_String("6");
+		break;
+		case 7:
+		LCD_String("*");
+		break;
+		case 8:
+		data = 1;
+		LCD_String("1");
+		break;
+		case 9:
+		data = 2;
+		LCD_String("2");
+		break;
+		case 10:
+		data = 3;
+		LCD_String("3");
+		break;
+		case 11:
+		LCD_String("-");
+		break;
+		case 12: // ON/C
+		LCD_Clear();
+		LCD_String("Enter Password: ");
+		LCD_Cmd(0xC0);
+		break;
+		case 13:
+		data = 0;
+		LCD_String("0");
+		break;
+		case 14:
+		LCD_String("=");
+		break;
+		case 15:
+		LCD_String("+");
+		break;
+	}
+
+	// Debounce delay
+	_delay_ms(50);
+
+	return data;
 }
 
-void keypad_init(void)
-{
-    //Set keypad pins as input
-    KEYPAD_DDR &= ~((1<<KEYPAD_PIN_1) | (1<<KEYPAD_PIN_2) | (1<<KEYPAD_PIN_3) | (1<<KEYPAD_PIN_4));
-    //Enable pull-up resistors
-    KEYPAD_PORT |= (1<<KEYPAD_PIN_1) | (1<<KEYPAD_PIN_2) | (1<<KEYPAD_PIN_3) | (1<<KEYPAD_PIN_4);
+// Checking password
+void check_password(void){
+	int i;
+	for (i = 0; i < 4; i++){
+		if (input_password[i] != stored_password[i]){
+			LCD_Clear();
+			LCD_String("Wrong Password");
+			_delay_ms(1000);
+			LCD_Clear();
+			LCD_String("Enter Password: ");
+			LCD_Cmd(0xC0);
+			count = 0;
+			break;
+		}
+	}
 }
 
-uint8_t keypad_key_pressed(void)
-{
-    //Check if any key is pressed
-    if((KEYPAD_PIN & (1<<KEYPAD_PIN_1)) == 0)
-    {
-        //Wait for key to be released
-        while((KEYPAD_PIN & (1<<KEYPAD_PIN_1)) == 0);
-        //Return 1
-        return 1;
-    }
-    else if((KEYPAD_PIN & (1<<KEYPAD_PIN_2)) == 0)
-    {
-        //Wait for key to be released
-        while((KEYPAD_PIN & (1<<KEYPAD_PIN_2)) == 0);
-        //Return 1
-        return 1;
-    }
-    else if((KEYPAD_PIN & (1<<KEYPAD_PIN_3)) == 0)
-    {
-        //Wait for key to be released
-        while((KEYPAD_PIN & (1<<KEYPAD_PIN_3)) == 0);
-        //Return 1
-        return 1;
-    }
-    else if((KEYPAD_PIN & (1<<KEYPAD_PIN_4)) == 0)
-    {
-        //Wait for key to be released
-        while((KEYPAD_PIN & (1<<KEYPAD_PIN_4)) == 0);
-        //Return 1
-        return 1;
-    }
-    else
-    {
-        //Return 0
-        return 0;
-    }
+// Showing password
+void show_password(void){
+	int i;
+	for (i = 0; i < 4; i++){
+		LCD_Char(input_password[i]);
+	}
 }
 
-void latch_button_init(void)
-{
-    //Set latch button pin as input
-    LATCH_BUTTON_DDR &= ~(1<<LATCH_BUTTON_PIN);
-    //Enable pull-up resistor
-    LATCH_BUTTON_PORT |= (1<<LATCH_BUTTON_PIN);
-}
+ISR(INT0_vect){
+	// return the code of the key pressed and only get 4 digits
+	key_code = read_keypad();
+	
 
-uint8_t latch_button_pressed(void)
-{
-    //Check if latch button is pressed
-    if((LATCH_BUTTON_PIN & (1<<LATCH_BUTTON_PIN)) == 0)
-    {
-        //Wait for latch button to be released
-        while((LATCH_BUTTON_PIN & (1<<LATCH_BUTTON_PIN)) == 0);
-        //Return 1
-        return 1;
-    }
-    else
-    {
-        //Return 0
-        return 0;
-    }
-}
+	_delay_ms(300);
+	if (key_code != 255){
+		input_password[count] = key_code;
+		count ++;
+		if (count == 4){
+			// display the password entered
+			char myString[20];
 
-void enter_button_init(void)
-{
-    //Set enter button pin as input
-    ENTER_BUTTON_DDR &= ~(1<<ENTER_BUTTON_PIN);
-    //Enable pull-up resistor
-    ENTER_BUTTON_PORT |= (1<<ENTER_BUTTON_PIN);
+			sprintf(myString, "%d%d%d%d", input_password[0], input_password[1], input_password[2], input_password[3]);
+			
+			LCD_Clear();
+			LCD_String("Password entered ");
+			LCD_Cmd(0xC0);
+			LCD_String(myString);
+			count = 0;
+		}
+	}
 }
-
-uint8_t enter_button_pressed(void)
-{
-    //Check if enter button is pressed
-    if((ENTER_BUTTON_PIN & (1<<ENTER_BUTTON_PIN)) == 0)
-    {
-        //Wait for enter button to be released
-        while((ENTER_BUTTON_PIN & (1<<ENTER_BUTTON_PIN)) == 0);
-        //Return 1
-        return 1;
-    }
-    else
-    {
-        //Return 0
-        return 0;
-    }
-}
-
-void clear_button_init(void)
-{
-    //Set clear button pin as input
-    CLEAR_BUTTON_DDR &= ~(1<<CLEAR_BUTTON_PIN);
-    //Enable pull-up resistor
-    CLEAR_BUTTON_PORT |= (1<<CLEAR_BUTTON_PIN);
-}
-
