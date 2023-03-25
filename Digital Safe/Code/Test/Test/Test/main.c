@@ -20,11 +20,12 @@ volatile uint8_t key_pressed = 0;
 volatile uint8_t key_code = 0;
 
 // Define Global Variables
-int input_password[4];
+int input_password[4] = {-1, -1, -1, -1};
 int stored_password[4] = {1, 2, 3, 4}; // to be changed to eeprom
 int count = 0;
 void check_password(void);
 void show_password(void);
+int password_entered = 0; // flag variable to indicate if password has been entered
 
 
 
@@ -39,6 +40,9 @@ int main(void)
 	GICR = 1<<INT0; /* Enable INT0*/
 	MCUCR = 1<<ISC01 | 1<<ISC00; /* Trigger INT0 on rising edge */
 	sei(); /* Enable Global Interrupt */
+	
+	// Initialize the BIRG
+	
 
 
 	while (1)
@@ -152,7 +156,7 @@ void check_password(void)
 			break;
 		}
 	}
-	if (i == 3)
+	if (i == 4)
 	{
 		LCD_Cmd(0x01);
 		LCD_String("Correct Password");
@@ -165,39 +169,44 @@ void check_password(void)
 }
 
 // Showing password
+// Function to show the entered password
 void show_password(void){
-	int i = count;
-	char num[10];
-	//int arr_size = sizeof(input_password) / sizeof(int);
-	for (i = 0; i < count; i++){
-		if (count == 0){
-			memset(num, 0, sizeof(num));
-		}
-		else{
-		sprintf(num+strlen(num), "%d", input_password[i]);
-		}
-	}
+	char buffer[40] = "\0";
+	char str[10];
+
 	LCD_Clear();
 	LCD_String("Enter Password: ");
 	LCD_Cmd(0xC0);
-	LCD_String(num);
+
+	for (int i = 0; i < 4; i++){
+		if (input_password[i] != -1){
+			sprintf(str, "%d", input_password[i]);
+			strcat(buffer, str);
+		}
+	}
+
+	LCD_String(buffer);
+
+	memset(input_password, -1, sizeof(input_password)); // reset to -1
+	memset(str, 0, sizeof(str));
+	memset(buffer, 0, sizeof(buffer));
+	password_entered = 0;
 }
+
 
 
 ISR(INT0_vect){
 	// return the code of the key pressed and only get 4 digits
 	key_code = read_keypad();
 	
-
 	if (key_code != 255){
-		
 		input_password[count] = key_code;
-		
 		count ++;
 		if (count == 4){
 			// display the password entered
 			count = 0;
-			memset(input_password, 0, sizeof(input_password)); // clear out the array
+			password_entered = 1;
+			//memset(input_password, 0, sizeof(input_password)); // clear out the array
 		}
 	}
 }
