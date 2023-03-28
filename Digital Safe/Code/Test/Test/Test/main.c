@@ -36,7 +36,8 @@ void activate_buzzer(void);
 int password_reset = 0; // flag variable to indicate if password has been reset 0 - not reset, 1 - reset
 void change_password(void);
 void keystroke(void);
-
+void TILT_ANGLE(void);
+int TILT;
 
 int main(void)
 {	
@@ -48,6 +49,7 @@ int main(void)
     //eeprom_write_block((const void*)stored_password, (void*)0, sizeof(stored_password));
 
 	LCD_Init();
+	ADC_Init(); // Initialize the ADC module to read the tilt angle
 	LCD_String("Enter Password: ");
 	LCD_Cmd(0xC0);
 	BIRG(2); // Safe starts as locked
@@ -62,6 +64,7 @@ int main(void)
 
 	while (1)
 	{
+		TILT_ANGLE(); // Read the tilt angle to determine if safe is being lifted
 		if (password_reset==0){//being entered normally
 			key_code = read_keypad();
 			if (key_code != 255){
@@ -82,7 +85,7 @@ void keystroke(void)
 	int pos = 0;
 	while (1){
 		key_code = read_keypad();
-		if (key_code != 255){
+		if ((key_code != 255) && (key_code != 200)){
 			input_password[pos] = key_code;
 			pos ++;
 			if (pos == 4){
@@ -135,7 +138,7 @@ uint8_t read_keypad(void)
 		break;
 		case 7:
 		//LCD_String("*");
-		//data = 200; // A generic value to indicate that the key is *
+		data = 200; // A generic value to indicate that the key is *
 		show_password();
 		break;
 		case 8:
@@ -287,7 +290,7 @@ int check_password(void)
 	//while (!(PIND & (1 << PD3)));
 	// read the password from eeeprom
 	eeprom_read_block((void *)&stored_password, (const void *)0, 4);
-
+	// check if password is correct
 	int i;
 	for (i = 0; i < 4; i++)
 	{
@@ -377,27 +380,27 @@ ISR(INT1_vect)
 
 void activate_buzzer(void)
 {
-	// Set PD7 as an output
-	DDRD |= (1 << BUZZER_PIN);
+    // Set PD7 as an output
+    DDRD |= (1 << BUZZER_PIN);
 
-	// Set up Timer/Counter 0 for PWM operation
-	TCCR0 |= (1 << WGM01) | (1 << WGM00) | (1 << COM01) | (1 << CS00);
+    // Set up Timer/Counter 0 for PWM operation
+    TCCR0 |= (1 << WGM01) | (1 << WGM00) | (1 << COM01) | (1 << CS00);
 
-	// Generate a police siren on PD7
-	int duration = 5000; // duration of the siren (in milliseconds)
-	int frequency = 800; // starting frequency of the siren
-	int delta = 50; // amount to increase the frequency with each cycle
-	int cycles = duration / 20; // number of cycles to produce the siren
-	for (int i = 0; i < cycles; i++)
-	{
-		OCR0 = 128 + (127 * sin(2 * 3.14 * frequency * i / 1000)); // generate the PWM signal
-		_delay_ms(10); // delay for 10 ms
-		frequency += delta; // increase the frequency
-	}
+    // Generate a police siren on PD7
+    int duration = 5000; // duration of the siren (in milliseconds)
+    int frequency = 800; // starting frequency of the siren
+    int delta = 50; // amount to increase the frequency with each cycle
+    int cycles = duration / 20; // number of cycles to produce the siren
+    for (int i = 0; i < cycles; i++)
+    {
+        OCR0 = 128 + (127 * sin(2 * 3.14 * frequency * i / 1000)); // generate the PWM signal
+        _delay_ms(10); // delay for 10 ms
+        frequency += delta; // increase the frequency
+    }
 
-	// Turn off the buzzer
-	TCCR0 &= ~(1 << WGM01) & ~(1 << WGM00) & ~(1 << COM01) & ~(1 << CS00);
-	PORTD &= ~(1 << BUZZER_PIN);
+    // Turn off the buzzer
+    TCCR0 &= ~(1 << WGM01) & ~(1 << WGM00) & ~(1 << COM01) & ~(1 << CS00);
+    PORTD &= ~(1 << BUZZER_PIN);
 }
 
 // When on/c is pressed change the
@@ -444,4 +447,36 @@ void read_eeprom_password(void){
 
 void write_eeprom_password(void){
 	eeprom_write_block((const void*)&input_password, (void*)0, 4);
+}
+
+
+// Reading the Tilt sensor
+void TILT_ANGLE(void)
+{
+	int potentiometer_value = ADC_Read(0); // read value from channel 0
+	float voltage = (potentiometer_value * 5.0) / 1024.0; // calculate voltage
+	
+	if (voltage > 2.5) // check if voltage exceeds 2.5 volts
+	{
+		// if voltage exceeds 2.5 volts, turn on the LED
+		PORTD |= (1 << PD7);
+		//activate_buzzer();
+		LCD_Clear();
+		LCD_String("THEFT!!");
+		_delay_ms(2000);
+		LCD_Clear();
+		latch_state = 0;
+		safe_open =0;
+		LCD_Clear();
+		LCD_String("LOCKED MODE");
+		LCD_Cmd(0xC0);
+		BIRG(2); // lock the safe
+	}
+	else
+	{
+		// if voltage is less than 2.5 volts, turn off the LED
+		PORTD &= ~(1 << PD7);
+	}
+	
+	_delay_ms(100); // wait for 100 ms before reading again
 }
